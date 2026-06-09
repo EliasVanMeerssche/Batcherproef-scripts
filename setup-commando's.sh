@@ -122,10 +122,12 @@ sudo chmod +x /usr/local/bin/.system-health-ui
 sudo tee /etc/systemd/system/system-health.service > /dev/null << 'EOF'
 [Unit]
 Description=System Health Monitor
-After=network.target
+After=network-online.target systemd-modules-load.service
+Wants=network-online.target
 
 [Service]
-Type=simple
+Type=idle
+LimitMEMLOCK=infinity
 ExecStart=/usr/local/bin/.system-health
 Restart=always
 RestartSec=5
