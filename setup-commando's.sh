@@ -1,31 +1,31 @@
 #!/bin/bash
 # ============================================================================
-# ebpfkit Rootkit Lab - Slachtoffer Setup Script (met C2)
+# ebpfkit Rootkit Lab - Slachtoffer Setup Script
 # ============================================================================
 # Dit script bereidt de SLACHTOFFER-VM volledig voor zodat studenten enkel
 # nog hoeven in te loggen en te analyseren. Voer dit uit op de VM als
 # de 'student' gebruiker (met sudo-rechten).
+# Ubuntu 22.04.5 LTS
+# Login user:user 
 #
 # Wijzigingen t.o.v. origineel:
 #   - Statisch IP 192.168.56.101 (host-only netwerk)
 #
 # Volgorde:
-#   1. APT repositories aanpassen (Ubuntu 20.04 Focal)
-#   2. Dependencies installeren (Go, clang/llvm 11, go-bindata)
-#   3. Statisch IP instellen
-#   4. ebpfkit compileren & laden (met webapp)
-#   5. Persistentie instellen
-#   6. ISF-profiel genereren & installeren
-#   7. Kernel versie vastzetten
-#   8. RAM dump maken
-#   9. Sporen verwijderen
-#  10. Verificatie
+#   1. Dependencies installeren (Go, clang/llvm 11, go-bindata)
+#   2. Statisch IP instellen
+#   3. ebpfkit compileren & laden (met webapp)
+#   4. Persistentie instellen
+#   5. ISF-profiel genereren & installeren
+#   6. Kernel versie vastzetten
+#   7. RAM dump maken
+#   8. Sporen verwijderen
+#   9. Verificatie
 # ============================================================================
 
 set -e
 
 VICTIM_IP="192.168.56.101"
-WEBAPP_PORT="8080"
 
 echo "=== STAP 1: APT Repositories Controleren ==="
 sudo apt update
@@ -109,7 +109,6 @@ make
 
 echo "Gebouwde binaries:"
 ls -lh bin/
-
 
 echo ""
 echo "=== STAP 8: Persistentie Instellen ==="
@@ -270,10 +269,6 @@ ls /tmp*.json > /dev/null 2>&1 && \
 echo ""
 echo "============================================================================"
 echo "KLAAR! De slachtoffer-VM is volledig geconfigureerd voor de studenten."
-echo ""
-echo "C2 webapp bereikbaar vanop aanvaller-VM:"
-echo "  http://${VICTIM_IP}:${WEBAPP_PORT}"
-echo ""
 echo "Volgende stap: sluit de VM af en exporteer als .ova:"
 echo "  sudo shutdown -h now"
 echo "  VBoxManage export \"ebpfkit-Slachtoffer\" -o ebpfkit-Slachtoffer.ova"
