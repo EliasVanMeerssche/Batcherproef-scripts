@@ -21,11 +21,5 @@
 - Waarom kan LiME niet geladen worden
 - Hoe wordt de eBPF ingeladen in het systeem als het opstart
 
-# eBPF command & control
-- .ova bestand (clean VM)
-1. Zet de client op van de rootkit
-2. Zet de c2 op
-3. Probeer met tcpdump het verkeer te detecteren
-
 
 
